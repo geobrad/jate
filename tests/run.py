@@ -69,9 +69,7 @@ if __name__ == "__main__":
             snapshot_zero=0,
             snapshot_zero_rating=0.0,
             play_fn=mock_play,
-            variance=0.1**2,
-            lengthscale=10,
-            snapshot_variance=0.1**2,
+            snapshot_variance=1**2,
             rng_key=jate_key,
         )
 

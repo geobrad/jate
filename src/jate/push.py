@@ -96,26 +96,6 @@ def push(state: JateState, t: jax.typing.ArrayLike, new_snapshot: JaxTree) -> Ja
         state,
     )
 
-    # T = state.times
-
-    # K_unmasked = state.kernel(T[:, None], T[None, :])
-    # K = mask2d(state.mask, K_unmasked) + jnp.diag(~state.mask)
-    # k_t = mask1d(state.mask, state.kernel(T, t))
-    # k_tt = state.kernel(t, t)
-    # mu_T_prior = state.mean_fn(T)
-    # mu_t_prior = state.mean_fn(t)
-
-    # weights = jnp.linalg.solve(K, k_t)
-
-    # mu_t = mu_t_prior + weights @ mask1d(state.mask, state.mu - mu_T_prior)
-
-    # Sigma = mask2d(state.mask, state.Sigma)
-
-    # cov_t = jnp.where(state.last_slot < 0,
-    #                   jnp.zeros_like(k_t), Sigma @ weights)
-    # var_t = jnp.where(state.last_slot < 0, k_tt, k_tt - k_t @
-    #                   weights + weights @ Sigma @ weights)
-
     j = state.next_slot
     # mu_next = state.mu.at[j].set(mu_t)
     # Sigma_next = Sigma \
@@ -123,8 +103,9 @@ def push(state: JateState, t: jax.typing.ArrayLike, new_snapshot: JaxTree) -> Ja
     #     .at[:, j].set(cov_t) \
     #     .at[j, j].set(var_t + state.snapshot_variance)
 
+    cov = state.Sigma[:, state.last_slot]
     mu_next = state.mu.at[j].set(jnp.where(state.last_slot < 0, state.anchor_rating, state.mu[state.last_slot]))
-    Sigma_next = state.Sigma.at[j, :].set(jnp.zeros(state.n_slots)).at[:, j].set(jnp.zeros(state.n_slots)).at[j, j].set(state.snapshot_variance)
+    Sigma_next = state.Sigma.at[j, :].set(cov).at[:, j].set(cov).at[j, j].set(cov[state.last_slot] + state.snapshot_variance)
 
 
     return replace(

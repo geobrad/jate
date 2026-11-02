@@ -18,8 +18,6 @@ class JateState:
     Sigma: jax.Array  # Shape (n, n) of float
     last_slot: jax.Array  # Scalar int; -1 if empty
     next_slot: jax.Array  # Scalar int; -1 if full
-    kernel: GPKernel = jax.tree.static()
-    mean_fn: GPMeanFunction = jax.tree.static()
     snapshot_variance: jax.Array
     play_fn: PlayFunction = jax.tree.static()
     n_played: jax.Array
