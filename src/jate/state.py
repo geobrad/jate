@@ -22,10 +22,10 @@ class JateState:
     play_fn: PlayFunction = jax.tree.static()
     n_played: jax.Array
     rng_key: jax.Array
-    kappa: jax.typing.ArrayLike = jax.tree.static()
+    kappa: float = jax.tree.static()
 
 
-def is_full(state: JateState) -> bool:
+def is_full(state: JateState) -> jax.Array:
     return jnp.sum(state.mask) == state.n_slots
 
 

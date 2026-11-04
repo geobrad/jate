@@ -84,8 +84,8 @@ def play_one_pair(state: JateState, n_games: int) -> JateState:
     )
 
 
-@jax.jit(static_argnames=("n_pairs", "n_games"))
 def play(state: JateState, n_pairs: int, n_games: int) -> JateState:
+    jax.debug.print("Playing {} pairs of {} games", n_pairs, n_games)
     return jax.lax.cond(
         state.last_slot < 0,
         lambda s: s,
@@ -99,7 +99,6 @@ def play(state: JateState, n_pairs: int, n_games: int) -> JateState:
     )
 
 
-@jax.jit(static_argnames=("n_games",))
 def play_until(state: JateState, target_variance: jax.typing.ArrayLike, n_games: int) -> JateState:
     return jax.lax.cond(
         state.last_slot < 0,
