@@ -2,7 +2,7 @@
 
 Mathematical formulation implemented by `ep_update.py`.
 
-The function takes a Gaussian belief over snapshot ratings and a batch of new game results, and returns a Gaussian approximation of the Bayes posterior, matched in mean and covariance (moment matching).
+The function takes a Gaussian belief over snapshot ratings, a deterministic anchor rating, and a batch of new game results, and returns a Gaussian approximation of the Bayes posterior, matched in mean and covariance (moment matching).
 
 ---
 
@@ -14,7 +14,7 @@ $$
 p_0(r) = \mathcal{N}(r;\, \mu_0, \Sigma_0), \qquad \Lambda_0 = \Sigma_0^{-1}, \qquad \eta_0 = \Lambda_0 \mu_0 ,
 $$
 
-where $\Lambda_0$ is the precision and $\eta_0$ the natural mean. $\Sigma_0$ must be positive definite.
+where $\Lambda_0$ is the precision and $\eta_0$ the natural mean. $\Sigma_0$ must be positive definite. The player at index $-1$ has the fixed rating `anchor_rating` and is not included in $r$.
 
 **Data.** A batch of $K$ pairs, indexed $k = 1,\dots,K$, one per unordered pair that played. Pair $k$ is $(i_k, j_k)$ with
 
@@ -29,10 +29,12 @@ $$
 
 with $c = 1$ if ratings are in logit units and $c = \ln 10 / 400$ if they are in Elo points.
 
-Define the projection direction and scalar for pair $k$:
+Let $\tilde e_i=e_i$ for a tracked player ($i \ge 0$), and $\tilde e_{-1}=0$. Define the projection direction and scalar offset for pair $k$:
 
 $$
-u_k = c\,(e_{i_k} - e_{j_k}), \qquad s_k = u_k^\top r .
+u_k = c\,(\tilde e_{i_k} - \tilde e_{j_k}), \qquad
+a_k = c\,\text{anchor\_rating}\,(\mathbf{1}_{i_k=-1} - \mathbf{1}_{j_k=-1}), \qquad
+s_k = a_k + u_k^\top r .
 $$
 
 The likelihood of pair $k$ depends on $r$ only through $s_k$:
@@ -46,18 +48,18 @@ This is the binomial likelihood without the constant binomial coefficient. With 
 **Posterior.**
 
 $$
-p(r) \;\propto\; \mathcal{N}(r;\, \mu_0, \Sigma_0)\; \prod_{k=1}^{K} f_k\!\left(u_k^\top r\right).
+p(r) \;\propto\; \mathcal{N}(r;\, \mu_0, \Sigma_0)\; \prod_{k=1}^{K} f_k\!\left(a_k + u_k^\top r\right).
 $$
 
 This is not Gaussian, because the logistic likelihood is not conjugate to a Gaussian. The goal is a Gaussian $q(r) = \mathcal{N}(r; \mu, \Sigma)$ whose mean and covariance approximate those of $p(r)$.
 
-The key structural fact is that each factor sees $r$ only through one scalar projection $s_k$. This is why every EP step below is one-dimensional plus a rank-one update.
+The key structural fact is that each factor sees $r$ only through one scalar projection $s_k$, which includes the fixed offset for an anchor matchup. This is why every EP step below is one-dimensional plus a rank-one update.
 
 ---
 
 ## 2. EP approximating family
 
-Each likelihood factor is replaced by an unnormalized Gaussian *site* in its own projection:
+Each likelihood factor is replaced by an unnormalized Gaussian *site* in its scalar $s_k=a_k+u_k^\top r$:
 
 $$
 t_k(s) = \exp\!\Big(-\tfrac12\, \tau_k\, s^2 + \nu_k\, s\Big),
@@ -66,14 +68,14 @@ $$
 with site precision $\tau_k$ and site natural mean $\nu_k$. The approximation is
 
 $$
-q(r) \;\propto\; \mathcal{N}(r;\mu_0,\Sigma_0)\prod_{k=1}^{K} t_k\!\left(u_k^\top r\right),
+q(r) \;\propto\; \mathcal{N}(r;\mu_0,\Sigma_0)\prod_{k=1}^{K} t_k\!\left(a_k+u_k^\top r\right),
 $$
 
 which is Gaussian with
 
 $$
 \Lambda = \Lambda_0 + \sum_{k} \tau_k\, u_k u_k^\top, \qquad
-\eta = \eta_0 + \sum_{k} \nu_k\, u_k, \qquad
+\eta = \eta_0 + \sum_{k} (\nu_k-\tau_k a_k)\, u_k, \qquad
 \Sigma = \Lambda^{-1}, \qquad
 \mu = \Sigma\, \eta .
 $$
@@ -91,7 +93,7 @@ One update of site $k$, with $u = u_k$ and $(\tau, \nu) = (\tau_k, \nu_k)$ its c
 A linear projection of a Gaussian is Gaussian:
 
 $$
-s = u^\top r \;\sim\; \mathcal{N}(m_s, v_s), \qquad m_s = u^\top \mu, \qquad v_s = u^\top \Sigma\, u .
+s = a + u^\top r \;\sim\; \mathcal{N}(m_s, v_s), \qquad m_s = a + u^\top \mu, \qquad v_s = u^\top \Sigma\, u .
 $$
 
 ### 3.2 Cavity
@@ -150,7 +152,7 @@ Let $\Delta\tau$ and $\Delta\nu$ be the changes in $\tau$ and $\nu$ produced by 
 Since $q$ already contains the old site, only the change is applied:
 
 $$
-\Lambda \leftarrow \Lambda + \Delta\tau\; u u^\top, \qquad \eta \leftarrow \eta + \Delta\nu\; u .
+\Lambda \leftarrow \Lambda + \Delta\tau\; u u^\top, \qquad \eta \leftarrow \eta + (\Delta\nu-\Delta\tau\,a)\; u .
 $$
 
 In $(\mu, \Sigma)$ form, by the Sherman–Morrison formula with $v_s = u^\top \Sigma u$:
@@ -170,7 +172,7 @@ $$
 \Sigma' u = \frac{\Sigma u}{1 + \Delta\tau\, v_s}.
 $$
 
-Then $\mu' = \Sigma'(\eta + \Delta\nu\, u) = \Sigma'\Lambda\,\mu + \Delta\nu\, \Sigma' u$, and using $u^\top \mu = m_s$,
+Then $\mu' = \Sigma'(\eta + (\Delta\nu-\Delta\tau\,a)\, u) = \Sigma'\Lambda\,\mu + (\Delta\nu-\Delta\tau\,a)\, \Sigma' u$, and using $u^\top \mu = m_s-a$,
 
 $$
 \mu' = \mu - \frac{\Delta\tau\, m_s}{1 + \Delta\tau\, v_s}\, \Sigma u + \frac{\Delta\nu}{1 + \Delta\tau\, v_s}\, \Sigma u ,
@@ -230,14 +232,16 @@ $$
 ## 5. Algorithm
 
 ```
-input : mu0, Sigma0, games = [(i_k, j_k, W_k, N_k)], scale c, damping delta, tolerance tol
+input : mu0, Sigma0, anchor_rating, games = [(i_k, j_k, W_k, N_k)], scale c, damping delta, tolerance tol
 init  : mu <- mu0, Sigma <- Sigma0, tau_k <- 0, nu_k <- 0 for all k
 
 repeat (sweep) until max_k(|d_tau_k|, |d_nu_k|) < tol over a full sweep:
     for k = 1..K:
-        u      <- c (e_i - e_j)
+        u      <- c (1_{i >= 0} e_i - 1_{j >= 0} e_j)
+        a      <- c anchor_rating (1_{i = -1} - 1_{j = -1})
         Su     <- Sigma u                      # O(n)
-        m_s    <- u . mu ;  v_s <- u . Su
+        m_s    <- a + u . mu ;  v_s <- u . Su
+        if v_s <= 0: continue                  # no uncertain player in the pair
         prec_c <- 1/v_s - tau_k
         if prec_c <= 1e-12: continue           # invalid cavity: skip site
         v_c    <- 1/prec_c ;  m_c <- v_c (m_s/v_s - nu_k)

@@ -1,40 +1,39 @@
 from dataclasses import dataclass
+from typing import Callable
+import numpy as np
+from .types import Snapshot, PlayFunction
+import numpy.typing as npt
 import jax
-import jax.numpy as jnp
-from .types import JaxTree, PlayFunction, GPKernel, GPMeanFunction
 
+# RNGKey = TypeVar("RNGKey")
 
-@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class JateState:
+class JateState[RNGKey]:
     """A named tuple representing the state of the jate system."""
-    anchor_snapshot: JaxTree
-    anchor_rating: jax.Array  # Scalar float
-    n_slots: int = jax.tree.static()
-    snapshots: JaxTree
-    mask: jax.Array  # Shape (n,) of booleans
-    times: jax.Array  # Shape (n,) of int32
-    mu: jax.Array  # Shape (n,) of float
-    Sigma: jax.Array  # Shape (n, n) of float
-    last_slot: jax.Array  # Scalar int; -1 if empty
-    next_slot: jax.Array  # Scalar int; -1 if full
-    snapshot_variance: jax.Array
-    play_fn: PlayFunction = jax.tree.static()
-    n_played: jax.Array
-    rng_key: jax.Array
-    kappa: float = jax.tree.static()
+    anchor_snapshot: Snapshot
+    anchor_rating: npt.NDArray[np.float64]  # Scalar float
+    max_snapshots: int
+    snapshots: list[Snapshot]
+    times: npt.NDArray[np.float64]  # Shape (n,)
+    mu: npt.NDArray[np.float64]  # Shape (n,)
+    Sigma: npt.NDArray[np.float64]  # Shape (n, n)
+    snapshot_variance: float
+    play_fn: PlayFunction[RNGKey]
+    n_played: int
+    kappa: float
+    rng_key_split_fn: Callable[[RNGKey], tuple[RNGKey, RNGKey]]
+    rng_key: RNGKey
 
 
-def is_full(state: JateState) -> jax.Array:
-    return jnp.sum(state.mask) == state.n_slots
+def is_full(state: JateState) -> bool:
+    return len(state.snapshots) == state.max_snapshots
 
 
 def belief(state: JateState):
     return (
-        state.mask,
         state.times,
         state.mu,
-        jnp.diagonal(state.Sigma),
+        np.diagonal(state.Sigma),
     )
 
 

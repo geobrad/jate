@@ -1,17 +1,17 @@
-import jax
-import jax.numpy as jnp
-from .types import JaxTree, PlayFunction
+import numpy as np
+from .types import Snapshot, PlayFunction
 from .state import JateState
+from typing import Callable
 
-
-def init(
+def init[RNGKey](
         max_snapshots: int,
-        kappa: jax.typing.ArrayLike,
-        snapshot_zero: JaxTree,
+        kappa: float,
+        snapshot_zero: Snapshot,
         snapshot_zero_rating: float,
-        snapshot_variance: jax.typing.ArrayLike,
-        play_fn: PlayFunction,
-        rng_key: jax.Array,
+        snapshot_variance: float,
+        play_fn: PlayFunction[RNGKey],
+        rng_key_split_fn: Callable[[RNGKey], tuple[RNGKey, RNGKey]],
+        rng_key: RNGKey,
 ) -> JateState:
     """
     Initializes the JateState with default values.
@@ -20,22 +20,16 @@ def init(
     """
     return JateState(
         anchor_snapshot=snapshot_zero,
-        anchor_rating=jnp.asarray(snapshot_zero_rating, dtype=float),
-        n_slots=max_snapshots,
+        anchor_rating=np.asarray(snapshot_zero_rating, dtype=float),
+        max_snapshots=max_snapshots,
         kappa=kappa,
-        snapshots=jax.tree.map(
-            lambda x: jnp.broadcast_to(
-                x, (max_snapshots, *jnp.asarray(x).shape)),
-            snapshot_zero,
-        ),
-        mask=jnp.full((max_snapshots,), False),
-        times=jnp.full((max_snapshots,), 0),
-        mu=jnp.zeros(max_snapshots),
-        Sigma=jnp.eye(max_snapshots),
-        next_slot=jnp.array(0),
-        last_slot=jnp.array(-1),
+        snapshots=[],
+        times=np.zeros((0,)),
+        mu=np.zeros((0,)),
+        Sigma=np.eye(0),
         snapshot_variance=snapshot_variance,
         play_fn=play_fn,
+        n_played=0,
+        rng_key_split_fn=rng_key_split_fn,
         rng_key=rng_key,
-        n_played=jnp.array(0),
     )

@@ -2,13 +2,12 @@
 name = "jate"
 version = "0.1.0"
 dependencies = [
-    "jax",
+    "numpy",
+    "scipy",
+    "optree",
 ]
 
 [project.optional-dependencies]
-cuda12 = ["jax[cuda12]"]
-cuda13 = ["jax[cuda13]"]
-tpu = ["jax[tpu]"]
 dev = [
-    "gpjax>=1.0.0",
+    "scipy-stubs",
 ]

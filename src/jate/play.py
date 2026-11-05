@@ -1,30 +1,33 @@
 from dataclasses import replace
-import jax
-import jax.numpy as jnp
+import numpy as np
 from .state import JateState
 from .ep_update import ep_update
-
+import numpy.typing as npt
+from scipy.special import expit as sigmoid
 
 def score_pairing(
     state: JateState,
     n_games: int,
-    m: jax.typing.ArrayLike,
-    i: jax.typing.ArrayLike,
-    j: jax.typing.ArrayLike,
-) -> jax.Array:
+    m: npt.ArrayLike,
+    i: npt.ArrayLike,
+    j: npt.ArrayLike,
+) -> npt.NDArray:
+
+    i = np.asarray(i, dtype=np.intp)
+    j = np.asarray(j, dtype=np.intp)
+    m = np.asarray(m, dtype=np.intp)
+
     # Expected game outcome under the current Gaussian mean.
-    r_i = jnp.where(i == -1, state.anchor_rating, state.mu[i])
-    r_j = jnp.where(j == -1, state.anchor_rating, state.mu[j])
+    r_i = np.where(i == -1, state.anchor_rating, state.mu[i])
+    r_j = np.where(j == -1, state.anchor_rating, state.mu[j])
 
-    cov_mi = jnp.where(i == -1, 0, state.Sigma[m, i])
-    cov_mj = jnp.where(j == -1, 0.0, state.Sigma[m, j])
-    cov_ij = jnp.where(i == -1, 0.0, jnp.where(j == -1, 0.0, state.Sigma[i, j]))
-    var_i = jnp.where(i == -1, 0, state.Sigma[i, i])
-    var_j = jnp.where(j == -1, 0, state.Sigma[j, j])
-    valid_i = jnp.where(i == -1, True, state.mask[i])
-    valid_j = jnp.where(j == -1, True, state.mask[j])
+    cov_mi = np.where(i == -1, 0, state.Sigma[m, i])
+    cov_mj = np.where(j == -1, 0.0, state.Sigma[m, j])
+    cov_ij = np.where(i == -1, 0.0, np.where(j == -1, 0.0, state.Sigma[i, j]))
+    var_i = np.where(i == -1, 0, state.Sigma[i, i])
+    var_j = np.where(j == -1, 0, state.Sigma[j, j])
 
-    p = jax.nn.sigmoid(state.kappa * (r_i - r_j))
+    p = sigmoid(state.kappa * (r_i - r_j))
     w = 2 * n_games * p * (1.0 - p)
 
     # Covariance between the target rating and the rating difference.
@@ -35,37 +38,39 @@ def score_pairing(
 
     s = w * c**2 / (1.0 + w * state.kappa**2 * v)
 
-    return jnp.where(valid_i & valid_j, s, 0.0)
+    return s
 
 
-def select_pairing(state: JateState, n_games: int = 1) -> tuple[jax.Array, jax.Array]:
-    i_slots, j_slots = jnp.triu_indices(state.n_slots, k=1)
-    i = jnp.concatenate([jnp.full(state.n_slots, -1), i_slots])
-    j = jnp.concatenate([jnp.arange(state.n_slots), j_slots])
-    pairing_scores = score_pairing(state, n_games, state.last_slot, i, j)
-    best = jnp.argmax(pairing_scores)
+def select_pairing(state: JateState, n_games: int = 1) -> tuple[npt.NDArray, npt.NDArray]:
+    n = len(state.mu)
+    i_slots, j_slots = np.triu_indices(n, k=1)
+    i = np.concatenate([np.full(n, -1), i_slots])
+    j = np.concatenate([np.arange(n), j_slots])
+    pairing_scores = score_pairing(state, n_games, n - 1, i, j)
+    best = np.argmax(pairing_scores)
     return i[best], j[best]
 
 
 def play_one_pair(state: JateState, n_games: int) -> JateState:
+    # print("Selecting pairing...")
     i, j = select_pairing(state)
     # jax.debug.print("Playing {} vs {}", state.times[i], state.times[j])
-    snapshot_i = jax.lax.cond(
-        i == -1,
-        lambda: state.anchor_snapshot,
-        lambda: jax.tree.map(lambda x: x[i], state.snapshots),
-    )
-    snapshot_j = jax.tree.map(lambda x: x[j], state.snapshots)
-    ij_key, ji_key, out_key = jax.random.split(state.rng_key, 3)
-    i_score_ij, _ = state.play_fn(snapshot_i, snapshot_j, n_games, ij_key)
-    _, i_score_ji = state.play_fn(snapshot_j, snapshot_i, n_games, ji_key)
+    # print("Playing...")
+    snapshot_i = state.snapshots[i] if i >= 0 else state.anchor_snapshot
+    snapshot_j = state.snapshots[j]
+    key_next, key_ij = state.rng_key_split_fn(state.rng_key)
+    key_next, key_ji = state.rng_key_split_fn(key_next)
+    i_score_ij, _ = state.play_fn(snapshot_i, snapshot_j, n_games, key_ij)
+    _, i_score_ji = state.play_fn(snapshot_j, snapshot_i, n_games, key_ji)
 
-    games = (
-        jnp.array([i]),
-        jnp.array([j]),
-        jnp.array([i_score_ij + i_score_ji]),
-        jnp.array([n_games * 2]),
-    )
+    # games = (
+    #     np.array([i]),
+    #     np.array([j]),
+    #     np.array([i_score_ij + i_score_ji]),
+    #     np.array([n_games * 2]),
+    # )
+    # print("Updating belief...")
+    games = [(i, j, i_score_ij + i_score_ji, n_games * 2)]
     mu_new, Sigma_new, n_sweeps = ep_update(
         state.mu,
         state.Sigma,
@@ -73,40 +78,31 @@ def play_one_pair(state: JateState, n_games: int) -> JateState:
         games,
         c=state.kappa,
     )
+    if n_sweeps >= 100:
+        print("Warning: EP did not converge after 100 sweeps.")
     # jax.debug.print("Sweeps: {}", n_sweeps)
 
     return replace(
         state,
         mu=mu_new,
         Sigma=Sigma_new,
-        rng_key=out_key,
         n_played=state.n_played + n_games * 2,
+        rng_key=key_next,
     )
 
 
 def play(state: JateState, n_pairs: int, n_games: int) -> JateState:
-    jax.debug.print("Playing {} pairs of {} games", n_pairs, n_games)
-    return jax.lax.cond(
-        state.last_slot < 0,
-        lambda s: s,
-        lambda s: jax.lax.fori_loop(
-            0,
-            n_pairs,
-            lambda _, state_i: play_one_pair(state_i, n_games),
-            s,
-        ),
-        state,
-    )
+    if len(state.mu) == 0:
+        return state
+    # jax.debug.print("Playing {} pairs of {} games", n_pairs, n_games)
+    for i in range(n_pairs):
+        state = play_one_pair(state, n_games)
+    return state
 
 
-def play_until(state: JateState, target_variance: jax.typing.ArrayLike, n_games: int) -> JateState:
-    return jax.lax.cond(
-        state.last_slot < 0,
-        lambda s: s,
-        lambda s: jax.lax.while_loop(
-            lambda state_i: state_i.Sigma[state_i.last_slot, state_i.last_slot] > target_variance,
-            lambda state_i: play_one_pair(state_i, n_games),
-            s,
-        ),
-        state,
-    )
+def play_until(state: JateState, target_variance: npt.ArrayLike, n_games: int) -> JateState:
+    if len(state.mu) == 0:
+        return state
+    while state.Sigma[-1, -1] > target_variance:
+        state = play_one_pair(state, n_games)
+    return state

@@ -1,11 +1,13 @@
 from typing import Any, Callable
-import jax
+from numpy.typing import NDArray, ArrayLike
+import numpy.typing as npt
+from optree.typing import PyTree
 
-Score = float
-JaxTree = Any
-PlayFunction = Callable[
-    [JaxTree, JaxTree, int, jax.Array],
+type Score = float
+type Snapshot = Any
+type PlayFunction[RNGKey] = Callable[
+    [Snapshot, Snapshot, int, RNGKey],
     tuple[float, float],
 ]
-GPKernel = Callable[[jax.typing.ArrayLike, jax.typing.ArrayLike], jax.Array]
-GPMeanFunction = Callable[[jax.typing.ArrayLike], jax.Array]
+type GPKernel = Callable[[ArrayLike, ArrayLike], NDArray]
+type GPMeanFunction = Callable[[ArrayLike], NDArray]

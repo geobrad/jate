@@ -1,84 +1,77 @@
 from dataclasses import replace
-import jax
-import jax.numpy as jnp
-from .types import JaxTree
-from .state import JateState
-
-
-KAPPA = jnp.log(10.0) / 400.0
+import numpy as np
+from scipy.special import expit as sigmoid
+import numpy.typing as npt
+from .types import Snapshot
+from .state import JateState, is_full
 
 
 def snapshot_utilities(
-    kappa: jax.typing.ArrayLike,
-    mu: jax.Array,
-    target: jax.Array,
-    anchor_rating: jax.Array,
-) -> jax.Array:
+    kappa: float,
+    mu: npt.NDArray[np.float64],
+    anchor_rating: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    target = len(mu) - 1
+
     """Estimate snapshot utility from its contribution to target-anchor conductance."""
     n = mu.shape[0]
-    idx = jnp.arange(n)
+    idx = np.arange(n)
 
     # Expected internal Fisher information between buffer slots
     delta = mu[:, None] - mu[None, :]
-    p = jax.nn.sigmoid(kappa * delta)
+    p = sigmoid(kappa * delta)
     g = kappa**2 * p * (1.0 - p)
-    g = g.at[idx, idx].set(0.0)
+    np.fill_diagonal(g, 0.0)
 
     # Expected fisher information from each slot to the external anchor
-    p_anchor = jax.nn.sigmoid(kappa * (mu - anchor_rating))
+    p_anchor = sigmoid(kappa * (mu - anchor_rating))
     g_anchor = kappa**2 * p_anchor * (1.0 - p_anchor)
 
     # Weighted graph Laplacian.
     L = -g
-    L = L.at[idx, idx].set(jnp.sum(g, axis=1) + g_anchor)
+    np.fill_diagonal(L, np.sum(g, axis=1) + g_anchor)
 
     # Anchor at voltage 0; target at voltage 1.
     free = idx != target
 
-    A = jnp.where(free[:, None] & free[None, :], L, 0.0)
-    A = A.at[idx, idx].set(jnp.where(free, jnp.diag(L), 1.0))
+    A = np.where(free[:, None] & free[None, :], L, 0.0)
+    np.fill_diagonal(A, np.where(free, np.diagonal(L), 1.0))
 
     # Boundary contribution from the target's fixed voltage.
-    b = jnp.where(free, g[:, target], (idx == target).astype(mu.dtype))
+    b = np.where(free, g[:, target], (idx == target).astype(mu.dtype))
 
-    voltage = jnp.linalg.solve(A, b)
+    voltage = np.linalg.solve(A, b)
 
     # Sum incident-edge energy for each vertex.
     dv = voltage[:, None] - voltage[None, :]
-    internal_energy = jnp.sum(g * dv**2, axis=1)
+    internal_energy = np.sum(g * dv**2, axis=1)
     anchor_energy = g_anchor * voltage**2
     utility = internal_energy + anchor_energy
 
-    return jnp.where(free, utility, jnp.inf)
-
-
-def mask1d(mask: jax.typing.ArrayLike, x: jax.typing.ArrayLike):
-    return jnp.where(mask, x, 0)
-
-
-def mask2d(mask: jax.typing.ArrayLike, X: jax.typing.ArrayLike):
-    return jnp.where(mask[:, None] & mask[None, :], X, 0)
-
-
-def is_full(state: JateState) -> bool:
-    return jnp.sum(state.mask) == state.n_slots
+    return np.where(free, utility, np.inf)
 
 
 def select_slot_to_evict(state: JateState) -> int:
     utility = snapshot_utilities(
         state.kappa,
         state.mu,
-        state.last_slot,
         state.anchor_rating,
     )
-    return jnp.argmin(utility)
+    return int(np.argmin(utility))
 
 
 def evict(state: JateState, k: int) -> JateState:
+    keep = np.arange(len(state.mu)) != k
+    # print("keep", keep.shape)
+    # print("mu", state.mu.shape)
+    # print("Sigma", state.Sigma.shape)
+
     return replace(
         state,
-        mask=state.mask.at[k].set(False),
-        next_slot=k,
+        snapshots=state.snapshots[:k] + state.snapshots[k + 1:],
+        times=state.times[keep],
+        mu=state.mu[keep],
+        Sigma=state.Sigma[keep][:, keep],
     )
 
 
@@ -87,42 +80,28 @@ def evict_one(state: JateState) -> JateState:
     return evict(state, slot_to_evict)
 
 
-@jax.jit
-def push(state: JateState, t: jax.typing.ArrayLike, new_snapshot: JaxTree) -> JateState:
-    state = jax.lax.cond(
-        state.next_slot == -1,
-        evict_one,
-        lambda s: s,
-        state,
-    )
+def push(state: JateState, t: npt.ArrayLike, new_snapshot: Snapshot) -> JateState:
+    if is_full(state):
+        state = evict_one(state)
 
-    j = state.next_slot
-    # mu_next = state.mu.at[j].set(mu_t)
-    # Sigma_next = Sigma \
-    #     .at[j, :].set(cov_t) \
-    #     .at[:, j].set(cov_t) \
-    #     .at[j, j].set(var_t + state.snapshot_variance)
+    last = len(state.mu) - 1
 
-    cov = state.Sigma[:, state.last_slot]
-    mu_next = state.mu.at[j].set(jnp.where(state.last_slot < 0, state.anchor_rating, state.mu[state.last_slot]))
-    Sigma_next = state.Sigma.at[j, :].set(cov).at[:, j].set(cov).at[j, j].set(cov[state.last_slot] + state.snapshot_variance)
+    mu_new = state.mu[last] if last >= 0 else state.anchor_rating
+    mu_next = np.concatenate([state.mu, [mu_new]])
 
+    cov_new = state.Sigma[:, last] if last >= 0 else np.zeros(len(state.mu))
+    var_last = state.Sigma[last, last] if last >= 0 else 0.0
+    var_new = var_last + state.snapshot_variance
+
+    Sigma_next = np.concatenate([
+        np.concatenate([state.Sigma, cov_new[:, None]], axis=1),
+        np.concatenate([cov_new[None, :], [[var_new]]], axis=1)
+    ])
 
     return replace(
         state,
-        snapshots=jax.tree.map(
-            lambda x, y: x.at[j].set(y),
-            state.snapshots,
-            new_snapshot,
-        ),
-        mask=state.mask.at[j].set(True),
-        times=state.times.at[j].set(t),
+        snapshots=state.snapshots + [new_snapshot],
+        times=np.concatenate([state.times, np.asarray([t])]),
         mu=mu_next,
         Sigma=Sigma_next,
-        last_slot=j,
-        next_slot=jnp.where(
-            (j + 1 < state.n_slots) & ~state.mask[j + 1],
-            j + 1,
-            -1,
-        ),
     )
