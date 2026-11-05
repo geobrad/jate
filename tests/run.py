@@ -87,7 +87,7 @@ if __name__ == "__main__":
             jate_state = jate.push(jate_state, t, t)
             # jate_state = jate.play(jate_state, 10, 1000)
             jate_state = jate.play_until(jate_state, 10**2, 1000)
-            print(t)
+            # print(t)
 
         t = n_steps - 1
         times, mu, var = jate.state.belief(jate_state)

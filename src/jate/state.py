@@ -3,9 +3,7 @@ from typing import Callable
 import numpy as np
 from .types import Snapshot, PlayFunction
 import numpy.typing as npt
-import jax
 
-# RNGKey = TypeVar("RNGKey")
 
 @dataclass(frozen=True)
 class JateState[RNGKey]:

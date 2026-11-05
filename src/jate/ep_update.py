@@ -35,7 +35,7 @@ def tilted_moments(m_c, v_c, W, N):
     return m, w @ (s - m) ** 2
 
 
-def ep_update(mu, Sigma, anchor_rating, games, c=1.0, max_sweeps=100, damping=1.0, tol=1e-10):
+def ep_update(mu, Sigma, anchor_rating, games, c=1.0, max_sweeps=100, damping=1.0, tol=1e-8):
     """
     mu, Sigma : prior Gaussian belief over ratings (n,), (n, n)
     anchor_rating : deterministic rating of the player with index -1
