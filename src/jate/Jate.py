@@ -26,13 +26,13 @@ class Jate[Snapshot, RNGKey]:
     def __init__(
         self,
         max_snapshots: int,
-        kappa: float,
         snapshot_zero: Snapshot,
         snapshot_zero_rating: float,
         snapshot_variance: float,
         play_fn: PlayFunction[Snapshot, RNGKey],
         rng_key_split_fn: Callable[[RNGKey], tuple[RNGKey, RNGKey]],
         rng_key: RNGKey,
+        kappa: float = np.log(10.0) / 400.0,
     ):
         self.anchor_snapshot = snapshot_zero
         self.anchor_rating = snapshot_zero_rating
@@ -142,8 +142,8 @@ class Jate[Snapshot, RNGKey]:
         for i in range(n_pairs):
             self.play_best_pair(n_games)
 
-    def play_until(self, target_variance: npt.ArrayLike, n_games: int) -> None:
+    def play_until(self, variance: npt.ArrayLike, n_batch: int) -> None:
         if self.is_empty():
             return
-        while self.Sigma[-1, -1] > target_variance:
-            self.play_best_pair(n_games)
+        while self.Sigma[-1, -1] > variance:
+            self.play_best_pair(n_batch)
