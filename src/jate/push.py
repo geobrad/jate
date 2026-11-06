@@ -2,14 +2,13 @@ from dataclasses import replace
 import numpy as np
 from scipy.special import expit as sigmoid
 import numpy.typing as npt
-from .types import Snapshot
 from .state import JateState, is_full
 
 
 def snapshot_utilities(
     kappa: float,
     mu: npt.NDArray[np.float64],
-    anchor_rating: npt.NDArray[np.float64],
+    anchor_rating: float,
 ) -> npt.NDArray[np.float64]:
     target = len(mu) - 1
 
@@ -80,7 +79,7 @@ def evict_one(state: JateState) -> JateState:
     return evict(state, slot_to_evict)
 
 
-def push(state: JateState, t: npt.ArrayLike, new_snapshot: Snapshot) -> JateState:
+def push(state: JateState, t: npt.ArrayLike, new_snapshot: object) -> JateState:
     if is_full(state):
         state = evict_one(state)
 

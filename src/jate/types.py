@@ -4,8 +4,7 @@ import numpy.typing as npt
 from optree.typing import PyTree
 
 type Score = float
-type Snapshot = Any
-type PlayFunction[RNGKey] = Callable[
+type PlayFunction[Snapshot, RNGKey] = Callable[
     [Snapshot, Snapshot, int, RNGKey],
     tuple[float, float],
 ]

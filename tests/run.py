@@ -3,7 +3,7 @@ import numpy as np
 import gpjax as gpx
 import jax
 import jax.numpy as jnp
-import jate
+from jate import Jate
 
 
 LOG_2_PI = np.log(2.0 * np.pi)
@@ -71,10 +71,10 @@ if __name__ == "__main__":
             keys = jax.random.split(rng_key)
             return keys[0], keys[1]
 
-        jate_state = jate.init(
+        jate = Jate(
             max_snapshots=20,
             kappa=np.log(10.0) / 400.0,
-            snapshot_zero=np.array(0.0, dtype=np.float64),
+            snapshot_zero=0.0,
             snapshot_zero_rating=0.0,
             play_fn=mock_play,
             snapshot_variance=1000**2,
@@ -82,25 +82,21 @@ if __name__ == "__main__":
             rng_key=jate_key,
         )
 
-        # n_steps = 10
         for t in range(1, n_steps):
-            jate_state = jate.push(jate_state, t, t)
-            # jate_state = jate.play(jate_state, 10, 1000)
-            jate_state = jate.play_until(jate_state, 10**2, 1000)
-            # print(t)
+            jate.push(t, t)
+            # jate.play(10, 1000)
+            jate.play_until(10**2, 1000)
 
         t = n_steps - 1
-        times, mu, var = jate.state.belief(jate_state)
+        times, mu, var = jate.belief()
         k = np.argwhere(times == t)[0, 0]
-        # errors = mu - elo_true[i, times]
         errors = mu - elo_true[i][times.astype(int)]
-        # print(errors)
         likelihoods = np.exp(-np.square(errors) / (2.0 * var)) \
             / (2.0 * np.pi * var)
         log_likelihoods = -0.5 * (LOG_2_PI + np.log(var) + np.square(errors) / var)
         print(
             f"{i:3d}",
-            f"{jate_state.n_played:10d}",
+            f"{jate.n_played:10d}",
             f"{elo_true[i, t]:5.0f}",
             f"{errors[k]:+4.0f}",
             f"{mu[k]:5.0f}±{np.sqrt(var[k]):<4.0f}",
@@ -109,7 +105,7 @@ if __name__ == "__main__":
 
         z_scores = errors / np.sqrt(var)
 
-        mean_played += (jate_state.n_played - mean_played) / (i + 1)
+        mean_played += (jate.n_played - mean_played) / (i + 1)
         mean_log_likelihood += (log_likelihoods[k] - mean_log_likelihood) / (i + 1)
         mean_z_score += (z_scores[k] - mean_z_score) / (i + 1)
         mean_z2_score += (np.square(z_scores[k]) - mean_z2_score) / (i + 1)
