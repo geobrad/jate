@@ -6,6 +6,7 @@ State carried between calls is only (mu, Sigma). EP "sites" are scratch: they st
 every call and are discarded afterwards.
 """
 import numpy as np
+import numpy.typing as npt
 from scipy.special import log_expit
 
 x, w0 = np.polynomial.hermite.hermgauss(40)
@@ -35,7 +36,16 @@ def tilted_moments(m_c, v_c, W, N):
     return m, w @ (s - m) ** 2
 
 
-def ep_update(mu, Sigma, anchor_rating, games, c=1.0, max_sweeps=100, damping=1.0, tol=1e-8):
+def ep_update(
+    mu: npt.NDArray[np.float64],
+    Sigma: npt.NDArray[np.float64],
+    anchor_rating: float,
+    games: list[tuple[int, int, float, int]],
+    c: float = 1.0,
+    max_sweeps: int = 100,
+    damping: float = 1.0,
+    tol: float = 1e-6,
+):
     """
     mu, Sigma : prior Gaussian belief over ratings (n,), (n, n)
     anchor_rating : deterministic rating of the player with index -1
@@ -43,10 +53,8 @@ def ep_update(mu, Sigma, anchor_rating, games, c=1.0, max_sweeps=100, damping=1.
                 i and/or j may be -1; W = score of i against j, N = number of games
     c         : logit scale; P(i beats j) = sigmoid(c * (r_i - r_j)).  c = ln(10)/400 for Elo units.
     """
-    mu, Sigma = np.array(mu, dtype=float), np.array(Sigma, dtype=float)
-    anchor_rating = np.asarray(anchor_rating, dtype=float).item()
-    games = list(games)
-    tau, nu = np.zeros(len(games)), np.zeros(len(games))     # site precisions / precision-means
+    tau = np.zeros(len(games))  # site precisions
+    nu = np.zeros(len(games))  # precision-means
     n_sweeps = 0
     for n_sweeps in range(1, max_sweeps + 1):
         change = 0.0

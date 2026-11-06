@@ -90,7 +90,8 @@ if __name__ == "__main__":
             jate.play_until(variance=10**2, n_batch=1000)
 
         t = n_steps - 1
-        times, mu, var = jate.belief()
+        times, mu, Sigma = jate.belief()
+        var = np.diagonal(Sigma)
         k = np.argwhere(times == t)[0, 0]
         errors = mu - elo_true[i][times.astype(int)]
         likelihoods = np.exp(-np.square(errors) / (2.0 * var)) \

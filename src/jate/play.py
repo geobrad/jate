@@ -48,7 +48,7 @@ def best_pairing(
     mu: npt.NDArray,
     Sigma: npt.NDArray,
     kappa: float,
-) -> tuple[npt.NDArray, npt.NDArray]:
+) -> tuple[int, int]:
     n = len(mu)
     i_slots, j_slots = np.triu_indices(n, k=1)
     i = np.concatenate([np.full(n, -1), i_slots])

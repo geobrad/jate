@@ -53,7 +53,7 @@ class Jate[Snapshot, RNGKey]:
         return (
             self.times,
             self.mu,
-            np.diagonal(self.Sigma),
+            self.Sigma,
         )
 
     def games_played(self):
