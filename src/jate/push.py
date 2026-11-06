@@ -1,8 +1,6 @@
-from dataclasses import replace
 import numpy as np
 from scipy.special import expit as sigmoid
 import numpy.typing as npt
-from .state import JateState, is_full
 
 
 def snapshot_utilities(
@@ -48,59 +46,3 @@ def snapshot_utilities(
     utility = internal_energy + anchor_energy
 
     return np.where(free, utility, np.inf)
-
-
-def select_slot_to_evict(state: JateState) -> int:
-    utility = snapshot_utilities(
-        state.kappa,
-        state.mu,
-        state.anchor_rating,
-    )
-    return int(np.argmin(utility))
-
-
-def evict(state: JateState, k: int) -> JateState:
-    keep = np.arange(len(state.mu)) != k
-    # print("keep", keep.shape)
-    # print("mu", state.mu.shape)
-    # print("Sigma", state.Sigma.shape)
-
-    return replace(
-        state,
-        snapshots=state.snapshots[:k] + state.snapshots[k + 1:],
-        times=state.times[keep],
-        mu=state.mu[keep],
-        Sigma=state.Sigma[keep][:, keep],
-    )
-
-
-def evict_one(state: JateState) -> JateState:
-    slot_to_evict = select_slot_to_evict(state)
-    return evict(state, slot_to_evict)
-
-
-def push(state: JateState, t: npt.ArrayLike, new_snapshot: object) -> JateState:
-    if is_full(state):
-        state = evict_one(state)
-
-    last = len(state.mu) - 1
-
-    mu_new = state.mu[last] if last >= 0 else state.anchor_rating
-    mu_next = np.concatenate([state.mu, [mu_new]])
-
-    cov_new = state.Sigma[:, last] if last >= 0 else np.zeros(len(state.mu))
-    var_last = state.Sigma[last, last] if last >= 0 else 0.0
-    var_new = var_last + state.snapshot_variance
-
-    Sigma_next = np.concatenate([
-        np.concatenate([state.Sigma, cov_new[:, None]], axis=1),
-        np.concatenate([cov_new[None, :], [[var_new]]], axis=1)
-    ])
-
-    return replace(
-        state,
-        snapshots=state.snapshots + [new_snapshot],
-        times=np.concatenate([state.times, np.asarray([t])]),
-        mu=mu_next,
-        Sigma=Sigma_next,
-    )

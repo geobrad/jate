@@ -1,6 +1,4 @@
-from dataclasses import replace
 import numpy as np
-from .state import JateState
 from .ep_update import ep_update
 import numpy.typing as npt
 from scipy.special import expit as sigmoid
@@ -66,69 +64,3 @@ def best_pairing(
         j)
     best = np.argmax(pairing_scores)
     return i[best], j[best]
-
-
-def select_pairing(state: JateState) -> tuple[npt.NDArray, npt.NDArray]:
-    return best_pairing(
-        state.anchor_rating,
-        state.mu,
-        state.Sigma,
-        state.kappa,
-    )
-
-
-def play_one_pair(state: JateState, n_games: int) -> JateState:
-    # print("Selecting pairing...")
-    i, j = select_pairing(state)
-    # jax.debug.print("Playing {} vs {}", state.times[i], state.times[j])
-    # print("Playing...")
-    snapshot_i = state.snapshots[i] if i >= 0 else state.anchor_snapshot
-    snapshot_j = state.snapshots[j]
-    key_next, key_ij = state.rng_key_split_fn(state.rng_key)
-    key_next, key_ji = state.rng_key_split_fn(key_next)
-    i_score_ij, _ = state.play_fn(snapshot_i, snapshot_j, n_games, key_ij)
-    _, i_score_ji = state.play_fn(snapshot_j, snapshot_i, n_games, key_ji)
-
-    # games = (
-    #     np.array([i]),
-    #     np.array([j]),
-    #     np.array([i_score_ij + i_score_ji]),
-    #     np.array([n_games * 2]),
-    # )
-    # print("Updating belief...")
-    games = [(i, j, i_score_ij + i_score_ji, n_games * 2)]
-    mu_new, Sigma_new, n_sweeps = ep_update(
-        state.mu,
-        state.Sigma,
-        state.anchor_rating,
-        games,
-        c=state.kappa,
-    )
-    if n_sweeps >= 100:
-        print("Warning: EP did not converge after 100 sweeps.")
-    # jax.debug.print("Sweeps: {}", n_sweeps)
-
-    return replace(
-        state,
-        mu=mu_new,
-        Sigma=Sigma_new,
-        n_played=state.n_played + n_games * 2,
-        rng_key=key_next,
-    )
-
-
-def play(state: JateState, n_pairs: int, n_games: int) -> JateState:
-    if len(state.mu) == 0:
-        return state
-    # jax.debug.print("Playing {} pairs of {} games", n_pairs, n_games)
-    for i in range(n_pairs):
-        state = play_one_pair(state, n_games)
-    return state
-
-
-def play_until(state: JateState, target_variance: npt.ArrayLike, n_games: int) -> JateState:
-    if len(state.mu) == 0:
-        return state
-    while state.Sigma[-1, -1] > target_variance:
-        state = play_one_pair(state, n_games)
-    return state
