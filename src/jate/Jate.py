@@ -13,7 +13,7 @@ class Jate[Snapshot, RNGKey]:
     anchor_rating: float
     max_snapshots: int
     snapshots: list[Snapshot] = []
-    times = np.zeros(0)  # Shape (n,)
+    times = np.zeros(0, dtype=np.intp)  # Shape (n,)
     mu = np.zeros(0)  # Shape (n,)
     Sigma = np.eye(0)  # Shape (n, n)
     snapshot_variance: float
@@ -63,7 +63,7 @@ class Jate[Snapshot, RNGKey]:
         self.rng_key, key = self.rng_key_split_fn(self.rng_key)
         return key
 
-    def evict_one(self) -> tuple[float, Snapshot]:
+    def evict_one(self) -> tuple[int, Snapshot]:
         if self.is_empty():
             raise ValueError("Cannot evict snapshot: Jate is empty.")
         slot_utilities = snapshot_utilities(
@@ -74,7 +74,7 @@ class Jate[Snapshot, RNGKey]:
         slot_to_evict = int(np.argmin(slot_utilities))
         return self.evict(slot_to_evict)
 
-    def evict(self, k: int) -> tuple[float, Snapshot]:
+    def evict(self, k: int) -> tuple[int, Snapshot]:
         evicted_time = self.times[k]
         evicted_snapshot = self.snapshots[k]
         keep = np.arange(self.n_snapshots) != k
@@ -85,9 +85,12 @@ class Jate[Snapshot, RNGKey]:
         self.Sigma = self.Sigma[keep][:, keep]
         return evicted_time, evicted_snapshot
 
-    def push(self, snapshot: Snapshot, time: float) -> tuple[float, Snapshot] | None:
+    def push(self, t: int, snapshot: Snapshot) -> tuple[int, Snapshot] | None:
         evicted = self.evict_one() if self.is_full() else None
         last = self.n_snapshots - 1
+
+        t_last = 0 if self.is_empty() else self.times[-1]
+        delta_t = t - t_last
 
         mu_new = self.mu[last] if last >= 0 else self.anchor_rating
         mu_next = np.concatenate([self.mu, [mu_new]])
@@ -95,7 +98,7 @@ class Jate[Snapshot, RNGKey]:
         cov_new = self.Sigma[:, last] if last >= 0 else np.zeros(
             self.n_snapshots)
         var_last = self.Sigma[last, last] if last >= 0 else 0.0
-        var_new = var_last + self.snapshot_variance
+        var_new = var_last + delta_t * self.snapshot_variance
 
         Sigma_next = np.concatenate([
             np.concatenate([self.Sigma, cov_new[:, None]], axis=1),
@@ -104,7 +107,7 @@ class Jate[Snapshot, RNGKey]:
 
         self.n_snapshots += 1
         self.snapshots = self.snapshots + [snapshot]
-        self.times = np.concatenate([self.times, np.asarray([time])])
+        self.times = np.concatenate([self.times, np.asarray([t])])
         self.mu = mu_next
         self.Sigma = Sigma_next
         return evicted
